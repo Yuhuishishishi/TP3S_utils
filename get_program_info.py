@@ -1,8 +1,8 @@
 from get_rehit_lib import connect_db
 import sys
-import json
 from collections import defaultdict
 
+SYMMETRIC = 1
 EITHER = 2
 LEFT = 4
 RIGHT = 3
@@ -188,6 +188,7 @@ def get_vehicle_info(program_id):
 
     conn.close()
 
+    print "Find {} vehicles for program {}".format(len(vehicle_list), program_id)
     return vehicle_list
 
 
@@ -210,9 +211,20 @@ def get_deadline_info(program_id):
         else:
             deadline_map[deadline_id] = deadline_name + " START"
 
+    sql = """
+    SELECT * FROM [ProgramDeadlineDates] WHERE [programID]=%d
+    """
+
+    cursor.execute(sql, (program_id,))
+    milestone_map = {}
+    for r in cursor:
+        deadline_id = r["universalDeadlineId"]
+        date = r["date"]
+        milestone_name = deadline_map[deadline_id]
+        milestone_map[milestone_name] = date
     cursor.close()
 
-    return deadline_map
+    return milestone_map
 
 
 def get_safetymode_info():
@@ -221,9 +233,9 @@ def get_safetymode_info():
 
     sql = """
     SELECT [SafetyTest].[id], [SafetyTest].[code], [SafetyTest].[name],[SafetyTest].[req_signoff],[SafetyTest].[req_walkaround],[SafetyTest].[req_crash], [Subcategory].[code] AS [subcode],
-				[Category].[name] AS [category] FROM [SafetyTest]
-				JOIN [Subcategory] ON [SafetyTest].[subcategoryID]=[Subcategory].[id]
-				JOIN [Category] ON [Category].[id]=[Subcategory].[categoryID]
+	[Category].[name] AS [category] FROM [SafetyTest]
+	JOIN [Subcategory] ON [SafetyTest].[subcategoryID]=[Subcategory].[id]
+	JOIN [Category] ON [Category].[id]=[Subcategory].[categoryID]
 	"""
     cursor.execute(sql)
 
@@ -238,27 +250,27 @@ def get_safetymode_info():
 
 
 def abs_position(relative_pos, driver_side, fuel_filler):
-    if relative_pos==DRIVER_SIDE:
-        if driver_side==EITHER:
+    if relative_pos == DRIVER_SIDE:
+        if driver_side == EITHER:
             return relative_pos
-        elif driver_side==LEFT:
+        elif driver_side == LEFT:
             return LEFT
         else:
             return RIGHT
-    elif relative_pos==PASSENGER_SIDE:
-        if driver_side==EITHER:
+    elif relative_pos == PASSENGER_SIDE:
+        if driver_side == EITHER:
             return relative_pos
-        elif driver_side==LEFT:
+        elif driver_side == LEFT:
             return RIGHT
         else:
             return LEFT
-    elif relative_pos==FUEL_FILLER:
-        if fuel_filler==LEFT:
+    elif relative_pos == FUEL_FILLER:
+        if fuel_filler == LEFT:
             return LEFT
         else:
             return RIGHT
-    elif relative_pos==OPPOSITE_FUEL_FILLER:
-        if fuel_filler==LEFT:
+    elif relative_pos == OPPOSITE_FUEL_FILLER:
+        if fuel_filler == LEFT:
             return RIGHT
         else:
             return LEFT
@@ -271,8 +283,11 @@ def get_test_info(program_id):
     conn = connect_db()
     cursor = conn.cursor(as_dict=True)
 
-    deadline_map = get_deadline_info(program_id)
-    control_model_map = get_control_model_info(program_id)
+    control_model_list = get_control_model_info(program_id)
+    control_model_map = {}
+    for c in control_model_list:
+        control_model_map[c["control_model_id"]] = c
+    safety_mode_map = get_safetymode_info()
 
     sql = """
     SELECT [ControlModelTestPairRequirements].[id] AS testID,[ControlModelTestPairRequirements].[req_witness], [ControlModelTestPairRequirements].[deadlineID], [SafetyTest].[id] AS [safetyID], [SafetyTest].[min_kph],[SafetyTest].[max_kph], [SafetyTest].[rehitCategoryID],
@@ -292,6 +307,8 @@ def get_test_info(program_id):
 
     cursor.execute(sql, (program_id, program_id))
 
+    test_list = []
+
     for r in cursor:
         test_id = r["testID"]
         control_model_id = r["controlModelID"]
@@ -299,6 +316,7 @@ def get_test_info(program_id):
         deadline_id = r["deadlineID"]
         due_date = r["date"]
 
+        time_map = {}
         prep = r["prep"]
         prep_rehit = r["prepRehit"]
         rework = r["rework"]
@@ -309,6 +327,16 @@ def get_test_info(program_id):
         tat = r["tat"]
         analysis = r["analysis"]
 
+        time_map["prep"] = prep
+        time_map["prep_rehit"] = prep_rehit
+        time_map["rework"] = rework
+        time_map["rewok_rehit"] = rework_rehit
+        time_map["parts"] = parts
+        time_map["vev"] = vev
+        time_map["non_vev"] = non_vev
+        time_map["tat"] = tat
+        time_map["analysis"] = analysis
+
         req_witness = r["req_witness"]
 
         safety_id = r["safetyID"]
@@ -317,23 +345,41 @@ def get_test_info(program_id):
         driver_side = r["driverSide"]
         filler_side = r["fillerSide"]
         relative_position_id = r["positionID"]
-        abs_position_id = position(relative_position_id, driver_side, filler_side)
-        if abs_position_id==LEFT:
+        # abs_position_id = position(relative_position_id, driver_side, filler_side)
+        if relative_position_id == LEFT:
             position = "LEFT"
-        elif abs_position_id==RIGHT:
+        elif relative_position_id == RIGHT:
             position = "RIGHT"
-        elif abs_position_id==DRIVER_SIDE:
+        elif relative_position_id == DRIVER_SIDE:
             position = "DRIVER_SIDE"
-        elif abs_position_id==PASSENGER_SIDE:
+        elif relative_position_id == PASSENGER_SIDE:
             position = "PASSENGER_SIDE"
-        elif abs_position_id==FUEL_FILLER:
+        elif relative_position_id == FUEL_FILLER:
             position = "FUEL_FILLER_SIDE"
-        elif abs_position_id==OPPOSITE_FUEL_FILLER:
+        elif relative_position_id == OPPOSITE_FUEL_FILLER:
             position = "OPPO_FILLER_SIDE"
+        elif relative_position_id == SYMMETRIC:
+            position = "SYMMETRIC"
         else:
             position = None
 
+        test_list.append({
+            "test_id": test_id,
+            "priority": priority_name,
+            "due_date": due_date,
+            "durations": time_map,
+            "req_witness": req_witness,
+            "mode": safety_mode_map[safety_id],
+            "max_speed": max_speed,
+            "position": position,
+            "control_model": control_model_map[control_model_id]
+        })
+
     cursor.close()
+
+    print "Find {} tests for program {}".format(len(test_list), program_id)
+
+    return test_list
 
 
 if __name__ == "__main__":
@@ -341,4 +387,4 @@ if __name__ == "__main__":
         print "Need to provide a program id"
     else:
         program_id = int(sys.argv[1])
-        print get_safetymode_info()
+        print get_deadline_info(program_id)
