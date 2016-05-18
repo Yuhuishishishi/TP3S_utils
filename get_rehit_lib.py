@@ -11,13 +11,13 @@ import sys
 import json
 import os.path
 
-server = "fmc05609.fsillab.ford.com"
-user = "tp3s"
-pwd = "wwooxxnn"
+SERVER = "fmc05609.fsillab.ford.com"
+USER = "tp3s"
+PWD = "wwooxxnn"
 
 
 def connect_db():
-    conn = ms.connect(server, user, pwd, "TP3S-Safety_PROD")
+    conn = ms.connect(SERVER, USER, PWD, "TP3S-Safety_PROD")
     return conn
 
 
